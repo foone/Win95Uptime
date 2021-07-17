@@ -242,7 +242,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					DWORD ticks=GetTick();
 					DWORD TTL=(~ticks)+1;
 					//ticks=0xFFFFFFFF;
-					char buffer[100],numberbuffer[100],crashbuffer[100];
+					char buffer[200],numberbuffer[100],crashbuffer[100];
 					format_commas(ticks,numberbuffer);
 					format_commas(TTL,crashbuffer);
 					int days = ticks/1000/60/60/24;
