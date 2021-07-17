@@ -36,7 +36,7 @@ bool IsPatched(){
 		RegCloseKey(temp_key);
 		is_patched=1;
 		return true;
-	}{
+	}else{
 		is_patched=0;
 		return false;
 	}
