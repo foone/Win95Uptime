@@ -20,25 +20,35 @@ LRESULT CALLBACK	About(HWND, UINT, WPARAM, LPARAM);
 int idTimer = -1; 
 HWND hwndPB;
 HFONT hFont;
-
-int is_patched = -1;
+const char * patch_status; 
 
 #define REG_PATH "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\Updates\\UPD216641.95"
 
 
 bool IsPatched(){
-	if(is_patched!=-1){
-		return is_patched!=0;
-	}
 	HKEY temp_key;
 	DWORD result = RegOpenKeyEx(HKEY_LOCAL_MACHINE,REG_PATH,0,KEY_READ, &temp_key);
 	if(result == ERROR_SUCCESS){
 		RegCloseKey(temp_key);
-		is_patched=1;
 		return true;
 	}else{
-		is_patched=0;
 		return false;
+	}
+}
+
+const char *GetPatchStatus(){
+	OSVERSIONINFOA version;
+	version.dwOSVersionInfoSize=sizeof(OSVERSIONINFO);
+	if(GetVersionEx(&version)!=0){
+		if(version.dwPlatformId == VER_PLATFORM_WIN32_NT){
+			return "This system doesn't need the clock patch.";
+		}
+	}
+
+	if(IsPatched()){
+		return "This system is patched.";
+	}else{
+		return "This system is NOT patched.";
 	}
 }
 
@@ -47,9 +57,10 @@ int APIENTRY WinMain(HINSTANCE hInstance,
                      LPSTR     lpCmdLine,
                      int       nCmdShow)
 {
- 	// TODO: Place code here.
 	MSG msg;
 	HACCEL hAccelTable;
+
+	patch_status = GetPatchStatus();
 
 	// Initialize global strings
 	LoadString(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -105,7 +116,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 	wcex.hInstance		= hInstance;
 	wcex.hIcon			= LoadIcon(hInstance, (LPCTSTR)IDI_WIN95UPTIME);
 	wcex.hCursor		= LoadCursor(NULL, IDC_ARROW);
-	wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
+	wcex.hbrBackground	= (HBRUSH)(COLOR_3DFACE+1);
 	wcex.lpszMenuName	= (LPCSTR)IDC_WIN95UPTIME;
 	wcex.lpszClassName	= szWindowClass;
 	wcex.hIconSm		= LoadIcon(wcex.hInstance, (LPCTSTR)IDI_CLOCK);
@@ -129,7 +140,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    hInst = hInstance; // Store instance handle in our global variable
 
-   hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+   hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,
       CW_USEDEFAULT, 0, 480, 200, NULL, NULL, hInstance, NULL);
 
    if (!hWnd)
@@ -227,35 +238,38 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 		case WM_PAINT:
-			hdc = BeginPaint(hWnd, &ps);
-			// TODO: Add any drawing code here...
-			RECT rt;
-			GetClientRect(hWnd, &rt);
 			{
+				hdc = BeginPaint(hWnd, &ps);
+				RECT rt;
+				GetClientRect(hWnd, &rt);
 				HFONT hOldFont; 
+				
+				// Set text color to the default foreground text color
+				SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+				// Set Burger King Color
+				SetBkColor(hdc, GetSysColor(COLOR_3DFACE));
 
-				// Retrieve a handle to the variable stock font.  
 
 				// Select the variable stock font into the specified device context. 
 				if (hOldFont = (HFONT)SelectObject(hdc, hFont)) 
 				{
 					DWORD ticks=GetTick();
 					DWORD TTL=(~ticks)+1;
-					//ticks=0xFFFFFFFF;
+
 					char buffer[200],numberbuffer[100],crashbuffer[100];
 					format_commas(ticks,numberbuffer);
-					format_commas(TTL,crashbuffer);
+					format_commas(TTL,crashbuffer); 
 					int days = ticks/1000/60/60/24;
 					int hours = (ticks/1000/60/60) % 24;
 					int minutes = (ticks/1000/60) % 60;
 					int crash_days = TTL/1000/60/60/24;
 					int crash_hours = (TTL/1000/60/60) % 24;
 					int crash_minutes = (TTL/1000/60) % 60;
-					sprintf(buffer,"%s milliseconds since boot\n%d days %02dh:%02dm\n%s ms until CRASH TIME\nTTL: %d days %02dh:%02dm\nThis system is %spatched",
-						numberbuffer,days,hours,minutes,crashbuffer,crash_days,crash_hours,crash_minutes,(IsPatched()?"":"NOT "));
+					sprintf(buffer,"%s milliseconds since boot\n%d days %02dh:%02dm\n%s ms until CRASH TIME\nTTL: %d days %02dh:%02dm\n%s",
+						numberbuffer,days,hours,minutes,crashbuffer,crash_days,crash_hours,crash_minutes, patch_status);
 					DrawText(hdc, buffer, strlen(buffer), &rt, DT_CENTER);
 					
-						// Restore the original font.        
+					// Restore the original font.        
 					SelectObject(hdc, hOldFont); 
 				}
 			}
