@@ -8,5 +8,8 @@
 
 #include "resource.h"
 
+const int STOPWATCH_W=32;
+const int STOPWATCH_H=32;
+
 
 #endif // !defined(AFX_WIN95UPTIME_H__BC690690_C993_420D_B2A8_B1564B4B69FF__INCLUDED_)

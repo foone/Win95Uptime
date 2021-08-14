@@ -2,7 +2,7 @@
 //
 
 #include "stdafx.h"
-#include "resource.h"
+#include "Win95Uptime.h"
 
 #define MAX_LOADSTRING 100
 
@@ -17,9 +17,23 @@ BOOL				InitInstance(HINSTANCE, int);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK	About(HWND, UINT, WPARAM, LPARAM);
 
-int idTimer = -1; 
+int idTimer = 1; 
 HWND hwndPB;
 HFONT hFont;
+HBITMAP hbmpStopwatch;
+int scroll_start = 0;
+DWORD last_text_update=0;
+DWORD last_stopwatch_update=0;
+const DWORD stopwatch_update_frequency=250;
+const DWORD text_update_divisor = 4; 
+int last_stopwatch_frame=0;
+
+int sw_dx=-2, sw_dy=-2;
+int sw_x=0,sw_y=0;
+
+// TODO: Initialize this from the resource's default checked/unchecked setting?
+bool screensaver_mode = false; 
+
 const char * patch_status; 
 
 #define REG_PATH "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\Updates\\UPD216641.95"
@@ -141,7 +155,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    hInst = hInstance; // Store instance handle in our global variable
 
    hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,
-      CW_USEDEFAULT, 0, 480, 200, NULL, NULL, hInstance, NULL);
+      CW_USEDEFAULT, 0, 480, 220, NULL, NULL, hInstance, NULL);
 
    if (!hWnd)
    {
@@ -172,10 +186,29 @@ void format_commas(DWORD number, char *out){
 }
 
 DWORD GetTick(){
-	return GetTickCount()+0;
+	return GetTickCount()+2928031649;
+	//return 2928031649;
 }
 
+void GetCrashTime(DWORD ticks, char *buffer, int num){
+	time_t current_time =0;
+	time(&current_time);
+	current_time-=(ticks/1000);
+	current_time+=4294967; // 2**32 milliseconds from boot
+	struct tm* now = localtime(&current_time);
+	strftime(buffer, num,"%B %d at %I:%M %p", now);
+}
 
+void DrawStopwatch(HDC hdc, int x, int y, unsigned int frame){
+	unsigned int subframe = frame % 8; 
+	HDC hdcStopwatchDC = CreateCompatibleDC(hdc);
+	HGDIOBJ prev_bitmap = SelectObject(hdcStopwatchDC, hbmpStopwatch);
+	BitBlt(hdc,x,y,STOPWATCH_W,STOPWATCH_H,hdcStopwatchDC,subframe*STOPWATCH_W,STOPWATCH_H,SRCAND);
+	BitBlt(hdc,x,y,STOPWATCH_W,STOPWATCH_H,hdcStopwatchDC,subframe*STOPWATCH_W,0,SRCPAINT);
+
+	SelectObject(hdcStopwatchDC, prev_bitmap);
+	DeleteDC(hdcStopwatchDC);
+}
 
 //
 //  FUNCTION: WndProc(HWND, unsigned, WORD, LONG)
@@ -202,13 +235,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			{
 				RECT rcClient;
 				int cyVScroll;
-				SetTimer(hWnd, idTimer = 1, 1000, NULL);
+				// NOTE: Change this if the default is changed from OFF to ON
+				SetTimer(hWnd, idTimer, 250, NULL);
 				GetClientRect(hWnd, &rcClient); 
 
 				cyVScroll = GetSystemMetrics(SM_CYVSCROLL); 
+				scroll_start = rcClient.bottom - cyVScroll; 
 				hwndPB = CreateWindowEx(0, PROGRESS_CLASS, (LPTSTR) NULL, 
 								WS_CHILD | WS_VISIBLE, rcClient.left, 
-								rcClient.bottom - cyVScroll, 
+								scroll_start, 
 								rcClient.right, cyVScroll, 
 								hWnd, (HMENU) 0, hInst, NULL);
 			    SendMessage(hwndPB, PBM_SETRANGE, 0, MAKELPARAM(0, 256));
@@ -218,6 +253,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				if(hFont == NULL){
 					hFont=(HFONT)GetStockObject(ANSI_VAR_FONT); 
 				}
+				hbmpStopwatch = LoadBitmap(hInst, MAKEINTRESOURCE(STOPWATCH));
 
 			}
 			return 0;
@@ -228,13 +264,40 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			switch (wmId)
 			{
 				case IDM_ABOUT:
-				   DialogBox(hInst, (LPCTSTR)IDD_ABOUTBOX, hWnd, (DLGPROC)About);
-				   break;
+					DialogBox(hInst, (LPCTSTR)IDD_ABOUTBOX, hWnd, (DLGPROC)About);
+					break;
+				case IDM_DVDSCREENSAVER:
+					{
+						MENUITEMINFO itemInfo;
+						HMENU menu = GetMenu(hWnd);
+						itemInfo.cbSize=sizeof(MENUITEMINFO);
+						itemInfo.fMask = MIIM_STATE;
+						if(menu!=NULL && GetMenuItemInfo(menu,wmId,FALSE,&itemInfo)!=0){
+							itemInfo.fState ^= MFS_CHECKED;
+							screensaver_mode = (itemInfo.fState & MFS_CHECKED) == MFS_CHECKED;
+							if(screensaver_mode){
+								// Initialize a random start position
+								RECT rt;
+								GetClientRect(hWnd, &rt);
+
+								// A better way to do this would be to divide by the whole range, using floating point, then multiple by the output range.
+								// But we're running on win95, so we might be on a 486SX with no FPU, so let's avoid floating point for now. 
+								sw_x = rand() % (rt.right - STOPWATCH_W-1);
+								sw_y = rand() % (scroll_start-STOPWATCH_H-4);
+								SetTimer(hWnd, idTimer, 25, NULL);
+							}else{
+								// We don't need to run the timer as often if we're not animating.
+								SetTimer(hWnd, idTimer, 250, NULL);
+							}
+							SetMenuItemInfo(menu,wmId,FALSE,&itemInfo);
+						}
+						break;
+					}
 				case IDM_EXIT:
-				   DestroyWindow(hWnd);
-				   break;
+					DestroyWindow(hWnd);
+					break;
 				default:
-				   return DefWindowProc(hWnd, message, wParam, lParam);
+					return DefWindowProc(hWnd, message, wParam, lParam);
 			}
 			break;
 		case WM_PAINT:
@@ -245,33 +308,55 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				HFONT hOldFont; 
 				
 				// Set text color to the default foreground text color
-				SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+				SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
 				// Set Burger King Color
 				SetBkColor(hdc, GetSysColor(COLOR_3DFACE));
 
+				DWORD ticks=GetTick();
+				if(ticks-last_stopwatch_update>=stopwatch_update_frequency){
+					last_stopwatch_update=ticks;
+					last_stopwatch_frame++;
+					if(last_text_update == 0 || last_stopwatch_frame%text_update_divisor == 0 ){
+						last_text_update = ticks;
+					}
+				}
 
-				// Select the variable stock font into the specified device context. 
+				DWORD TTL=(~last_text_update)+1;
 				if (hOldFont = (HFONT)SelectObject(hdc, hFont)) 
 				{
-					DWORD ticks=GetTick();
-					DWORD TTL=(~ticks)+1;
 
-					char buffer[200],numberbuffer[100],crashbuffer[100];
-					format_commas(ticks,numberbuffer);
+					char buffer[300],numberbuffer[100],crashbuffer[100],crash_date[100];
+					format_commas(last_text_update,numberbuffer);
 					format_commas(TTL,crashbuffer); 
-					int days = ticks/1000/60/60/24;
-					int hours = (ticks/1000/60/60) % 24;
-					int minutes = (ticks/1000/60) % 60;
+					int days = last_text_update/1000/60/60/24;
+					int hours = (last_text_update/1000/60/60) % 24;
+					int minutes = (last_text_update/1000/60) % 60;
 					int crash_days = TTL/1000/60/60/24;
 					int crash_hours = (TTL/1000/60/60) % 24;
 					int crash_minutes = (TTL/1000/60) % 60;
-					sprintf(buffer,"%s milliseconds since boot\n%d days %02dh:%02dm\n%s ms until CRASH TIME\nTTL: %d days %02dh:%02dm\n%s",
-						numberbuffer,days,hours,minutes,crashbuffer,crash_days,crash_hours,crash_minutes, patch_status);
+					GetCrashTime(last_text_update, crash_date, 100);
+					
+					sprintf(buffer,"%s milliseconds since boot\n%d days %02dh:%02dm\n%s ms until CRASH TIME\nTTL: %d days %02dh:%02dm\nEstimated crash time: %s\n%s",
+						numberbuffer,days,hours,minutes,crashbuffer,crash_days,crash_hours,crash_minutes, crash_date, patch_status);
 					DrawText(hdc, buffer, strlen(buffer), &rt, DT_CENTER);
 					
 					// Restore the original font.        
 					SelectObject(hdc, hOldFont); 
 				}
+				if(screensaver_mode){
+					sw_x+=sw_dx;
+					sw_y+=sw_dy;
+					if(sw_y+STOPWATCH_H+3>scroll_start || sw_y<0){
+						sw_dy=-sw_dy;
+					}
+					if(sw_x+STOPWATCH_W>rt.right || sw_x<0){
+						sw_dx=-sw_dx;
+					}
+				}else{
+					sw_x = rt.right-STOPWATCH_W;
+					sw_y = scroll_start-STOPWATCH_H-3;
+				}
+				DrawStopwatch(hdc,sw_x,sw_y,last_stopwatch_frame);
 			}
 			EndPaint(hWnd, &ps);
 			break;
@@ -281,6 +366,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			return 0;
 		case WM_DESTROY:
 			KillTimer(hWnd, 1);
+			DeleteObject(hbmpStopwatch);
 			PostQuitMessage(0);
 			break;
 		default:

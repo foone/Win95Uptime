@@ -23,6 +23,7 @@
 #include <tchar.h>
 #include <stdio.h>
 #include <commctrl.h>
+#include <time.h>
 
 // Local Header Files
 
