@@ -186,8 +186,7 @@ void format_commas(DWORD number, char *out){
 }
 
 DWORD GetTick(){
-	return GetTickCount()+2928031649;
-	//return 2928031649;
+	return GetTickCount()+0;
 }
 
 void GetCrashTime(DWORD ticks, char *buffer, int num){
