@@ -155,7 +155,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    hInst = hInstance; // Store instance handle in our global variable
 
    hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,
-      CW_USEDEFAULT, 0, 480, 220, NULL, NULL, hInstance, NULL);
+      CW_USEDEFAULT, 0, 480, 240, NULL, NULL, hInstance, NULL);
 
    if (!hWnd)
    {
@@ -195,7 +195,29 @@ void GetCrashTime(DWORD ticks, char *buffer, int num){
 	current_time-=(ticks/1000);
 	current_time+=4294967; // 2**32 milliseconds from boot
 	struct tm* now = localtime(&current_time);
-	strftime(buffer, num,"%B %d at %I:%M %p", now);
+	char timebuffer[300];
+	strftime(timebuffer, num,"%B %d at %I:%M %p", now);
+	TIME_ZONE_INFORMATION tzi;
+	DWORD timezone_status = GetTimeZoneInformation(&tzi);
+	if(timezone_status==TIME_ZONE_ID_STANDARD || timezone_status==TIME_ZONE_ID_DAYLIGHT){
+		// WE DON'T KNOW WHAT UNICODE IS, IT'S 199FUCKING5.
+		// So crop the WCHAR down to char. If your timezone has non-ASCII characters in it, tough.
+		char namebuffer[32];
+		const WCHAR* tzname = (timezone_status==TIME_ZONE_ID_DAYLIGHT ? tzi.DaylightName : tzi.StandardName);
+		int i;
+		memset(namebuffer,0,sizeof(char)*32);
+		for(i=0;i<32;i++){
+			namebuffer[i]=(char)tzname[i];
+			if(namebuffer[i]==0)break;
+		}
+		
+		sprintf(buffer,"%s\n(%s)",timebuffer, namebuffer);
+
+	}else{
+		sprintf(buffer,"%s",timebuffer);
+	}
+
+	
 }
 
 void DrawStopwatch(HDC hdc, int x, int y, unsigned int frame){
