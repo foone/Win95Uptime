@@ -17,10 +17,15 @@ BOOL				InitInstance(HINSTANCE, int);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK	About(HWND, UINT, WPARAM, LPARAM);
 
-int idTimer = 1; 
+int idTimer = 1;
+
 HWND hwndPB;
 HFONT hFont;
 HBITMAP hbmpStopwatch;
+
+HDC hBackBuf = NULL;
+HDC hStopwatchDC = NULL;
+
 int scroll_start = 0;
 DWORD last_text_update=0;
 DWORD last_stopwatch_update=0;
@@ -154,7 +159,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
    hInst = hInstance; // Store instance handle in our global variable
 
-   hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,
+   // Using WS_CLIPCHILDREN to avoid flicker on the progress bar
+   hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_CLIPCHILDREN,
       CW_USEDEFAULT, 0, 480, 240, NULL, NULL, hInstance, NULL);
 
    if (!hWnd)
@@ -220,15 +226,16 @@ void GetCrashTime(DWORD ticks, char *buffer, int num){
 	
 }
 
-void DrawStopwatch(HDC hdc, int x, int y, unsigned int frame){
-	unsigned int subframe = frame % 8; 
-	HDC hdcStopwatchDC = CreateCompatibleDC(hdc);
-	HGDIOBJ prev_bitmap = SelectObject(hdcStopwatchDC, hbmpStopwatch);
-	BitBlt(hdc,x,y,STOPWATCH_W,STOPWATCH_H,hdcStopwatchDC,subframe*STOPWATCH_W,STOPWATCH_H,SRCAND);
-	BitBlt(hdc,x,y,STOPWATCH_W,STOPWATCH_H,hdcStopwatchDC,subframe*STOPWATCH_W,0,SRCPAINT);
+void DrawStopwatch(HDC hdc, int x, int y, unsigned int frame)
+{
+	int dcState = SaveDC(hStopwatchDC);
 
-	SelectObject(hdcStopwatchDC, prev_bitmap);
-	DeleteDC(hdcStopwatchDC);
+	unsigned int subframe = frame % 8; 
+	HGDIOBJ prev_bitmap = SelectObject(hStopwatchDC, hbmpStopwatch);
+	BitBlt(hdc,x,y,STOPWATCH_W,STOPWATCH_H,hStopwatchDC,subframe*STOPWATCH_W,STOPWATCH_H,SRCAND);
+	BitBlt(hdc,x,y,STOPWATCH_W,STOPWATCH_H,hStopwatchDC,subframe*STOPWATCH_W,0,SRCPAINT);
+
+	RestoreDC(hStopwatchDC, dcState);
 }
 
 //
@@ -274,8 +281,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				if(hFont == NULL){
 					hFont=(HFONT)GetStockObject(ANSI_VAR_FONT); 
 				}
-				hbmpStopwatch = LoadBitmap(hInst, MAKEINTRESOURCE(STOPWATCH));
 
+				// Initialise the back buffer for later use (should be slightly faster
+				// than initialising and then destroying a new DC on each WM_PAINT message)
+				HDC hdcWnd = GetDC(hWnd);
+				hBackBuf = CreateCompatibleDC(hdcWnd);
+				ReleaseDC(hWnd, hdcWnd);
+
+				// Initialise stopwatch DC
+				hStopwatchDC = CreateCompatibleDC(hBackBuf);
+				hbmpStopwatch = LoadBitmap(hInst, MAKEINTRESOURCE(STOPWATCH));
 			}
 			return 0;
 		case WM_COMMAND:
@@ -326,12 +341,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				hdc = BeginPaint(hWnd, &ps);
 				RECT rt;
 				GetClientRect(hWnd, &rt);
-				HFONT hOldFont; 
+
+				// Using back buffer instead of drawing directly to the window DC to
+				// (hopefully) get rid of flicker caused by redrawing the Burger King
+				HBITMAP hBackBmp = CreateCompatibleBitmap(hdc, rt.right, rt.bottom);
+				
+				// Save current DC state to avoid GDI resource leaks later on
+				int backBufState = SaveDC(hBackBuf);
+				SelectObject(hBackBuf, hBackBmp);
 				
 				// Set text color to the default foreground text color
-				SetTextColor(hdc, GetSysColor(COLOR_BTNTEXT));
+				SetTextColor(hBackBuf, GetSysColor(COLOR_BTNTEXT));
 				// Set Burger King Color
-				SetBkColor(hdc, GetSysColor(COLOR_3DFACE));
+				SetBkColor(hBackBuf, GetSysColor(COLOR_3DFACE));
+
+				// Draw Burger King to the back buffer
+				HBRUSH hBkBrush = GetSysColorBrush(COLOR_3DFACE);
+				FillRect(hBackBuf, &rt, hBkBrush);
 
 				DWORD ticks=GetTick();
 				if(ticks-last_stopwatch_update>=stopwatch_update_frequency){
@@ -343,27 +369,24 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				}
 
 				DWORD TTL=(~last_text_update)+1;
-				if (hOldFont = (HFONT)SelectObject(hdc, hFont)) 
-				{
 
-					char buffer[300],numberbuffer[100],crashbuffer[100],crash_date[100];
-					format_commas(last_text_update,numberbuffer);
-					format_commas(TTL,crashbuffer); 
-					int days = last_text_update/1000/60/60/24;
-					int hours = (last_text_update/1000/60/60) % 24;
-					int minutes = (last_text_update/1000/60) % 60;
-					int crash_days = TTL/1000/60/60/24;
-					int crash_hours = (TTL/1000/60/60) % 24;
-					int crash_minutes = (TTL/1000/60) % 60;
-					GetCrashTime(last_text_update, crash_date, 100);
-					
-					sprintf(buffer,"%s milliseconds since boot\n%d days %02dh:%02dm\n%s ms until CRASH TIME\nTTL: %d days %02dh:%02dm\nEstimated crash time: %s\n%s",
-						numberbuffer,days,hours,minutes,crashbuffer,crash_days,crash_hours,crash_minutes, crash_date, patch_status);
-					DrawText(hdc, buffer, strlen(buffer), &rt, DT_CENTER);
-					
-					// Restore the original font.        
-					SelectObject(hdc, hOldFont); 
-				}
+				char buffer[300],numberbuffer[100],crashbuffer[100],crash_date[100];
+				format_commas(last_text_update,numberbuffer);
+				format_commas(TTL,crashbuffer); 
+				int days = last_text_update/1000/60/60/24;
+				int hours = (last_text_update/1000/60/60) % 24;
+				int minutes = (last_text_update/1000/60) % 60;
+				int crash_days = TTL/1000/60/60/24;
+				int crash_hours = (TTL/1000/60/60) % 24;
+				int crash_minutes = (TTL/1000/60) % 60;
+				GetCrashTime(last_text_update, crash_date, 100);
+				
+				sprintf(buffer,"%s milliseconds since boot\n%d days %02dh:%02dm\n%s ms until CRASH TIME\nTTL: %d days %02dh:%02dm\nEstimated crash time: %s\n%s",
+					numberbuffer,days,hours,minutes,crashbuffer,crash_days,crash_hours,crash_minutes, crash_date, patch_status);
+				
+				SelectObject(hBackBuf, hFont);
+				DrawText(hBackBuf, buffer, strlen(buffer), &rt, DT_CENTER);
+
 				if(screensaver_mode){
 					sw_x+=sw_dx;
 					sw_y+=sw_dy;
@@ -377,17 +400,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					sw_x = rt.right-STOPWATCH_W;
 					sw_y = scroll_start-STOPWATCH_H-3;
 				}
-				DrawStopwatch(hdc,sw_x,sw_y,last_stopwatch_frame);
+				DrawStopwatch(hBackBuf,sw_x,sw_y,last_stopwatch_frame);
+
+				// Copy back buffer to window DC and cleanup
+				BitBlt(hdc, 0, 0, rt.right, rt.bottom, hBackBuf, 0, 0, SRCCOPY);
+				RestoreDC(hBackBuf, backBufState);
+				DeleteObject(hBackBmp);
+
+				EndPaint(hWnd, &ps);
 			}
-			EndPaint(hWnd, &ps);
 			break;
+
+		// Erase Burger King Gender
+		case WM_ERASEBKGND:
+			return 1;
+
 		case WM_TIMER:
-			InvalidateRect(hWnd,NULL,TRUE);
+			// bErase = FALSE to avoid erasing the Burger King for no reason
+			InvalidateRect(hWnd,NULL,FALSE);
 			SendMessage(hwndPB, PBM_SETPOS, GetTick()>>24, 0);
 			return 0;
 		case WM_DESTROY:
 			KillTimer(hWnd, 1);
+
+			// Destroy back buffer and stopwatch DC
+			DeleteDC(hBackBuf);
+			DeleteDC(hStopwatchDC);
 			DeleteObject(hbmpStopwatch);
+			DeleteObject(hFont);
+
 			PostQuitMessage(0);
 			break;
 		default:
