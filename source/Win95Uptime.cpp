@@ -381,8 +381,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				int crash_minutes = (TTL/1000/60) % 60;
 				GetCrashTime(last_text_update, crash_date, 100);
 				
-				sprintf(buffer,"%s milliseconds since boot\n%d days %02dh:%02dm\n%s ms until CRASH TIME\nTTL: %d days %02dh:%02dm\nEstimated crash time: %s\n%s",
-					numberbuffer,days,hours,minutes,crashbuffer,crash_days,crash_hours,crash_minutes, crash_date, patch_status);
+				sprintf(buffer,"%s milliseconds since boot\n%d day%s %02dh:%02dm\n%s ms until CRASH TIME\nTTL: %d day%s %02dh:%02dm\nEstimated crash time: %s\n%s",
+					numberbuffer,days,(days==1?"":"s"),hours,minutes,crashbuffer,crash_days,(crash_days==1?"":"s"),crash_hours,crash_minutes, crash_date, patch_status);
 				
 				SelectObject(hBackBuf, hFont);
 				DrawText(hBackBuf, buffer, strlen(buffer), &rt, DT_CENTER);

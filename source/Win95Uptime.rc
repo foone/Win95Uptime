@@ -79,7 +79,7 @@ FONT 8, "System"
 BEGIN
     LTEXT           "Copyright (C) 2021 Foone Turing",IDC_STATIC,49,20,119,8
     ICON            IDI_CLOCK,IDC_MYICON,14,9,20,20
-    LTEXT           "Win95Uptime Version 1.6",IDC_STATIC,49,10,119,8,
+    LTEXT           "Win95Uptime Version 1.7",IDC_STATIC,49,10,119,8,
                     SS_NOPREFIX
     DEFPUSHBUTTON   "OK",IDOK,195,50,30,11,WS_GROUP
     LTEXT           "Made in Jest by @foone",IDC_STATIC,49,30,119,8
