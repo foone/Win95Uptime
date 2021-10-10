@@ -42,11 +42,21 @@ bool screensaver_mode = false;
 const char * patch_status; 
 
 #define REG_PATH "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\Updates\\UPD216641.95"
-
+#define REG_PATH_98 "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Setup\\Updates\\SP1\\UPD216641.98"
 
 bool IsPatched(){
 	HKEY temp_key;
-	DWORD result = RegOpenKeyEx(HKEY_LOCAL_MACHINE,REG_PATH,0,KEY_READ, &temp_key);
+	DWORD result;
+	// Get the OS Version and check to see if it's Windows 95 or Windows 98.
+	OSVERSIONA version;
+	version.dwOSVersionInfoSize=sizeof(OSVERSIONINFO);
+	if(GetVersionEx(&version)!=0) {
+		if ((version.dwMajorVersion == 4) && (version.dwMinorVersion == 0)) {
+			result = RegOpenKeyEx(HKEY_LOCAL_MACHINE,REG_PATH,0,KEY_READ, &temp_key);
+		} else {
+			result = RegOpenKeyEx(HKEY_LOCAL_MACHINE,REG_PATH_98,0,KEY_READ, &temp_key);
+		}
+	}
 	if(result == ERROR_SUCCESS){
 		RegCloseKey(temp_key);
 		return true;
@@ -58,8 +68,12 @@ bool IsPatched(){
 const char *GetPatchStatus(){
 	OSVERSIONINFOA version;
 	version.dwOSVersionInfoSize=sizeof(OSVERSIONINFO);
+	// szCSDVersion[1] == 'A': Windows 98 SE
+	// dwMajorVersion == 4 && version.dwMinorVersion==90: Windows ME
 	if(GetVersionEx(&version)!=0){
-		if(version.dwPlatformId == VER_PLATFORM_WIN32_NT){
+		if((version.dwPlatformId == VER_PLATFORM_WIN32) ||
+		   (version.dwMajorVersion == 4 && version.dwMinorVersion==90) ||
+		   (version.szCSDVersion[1] == 'A')){
 			return "This system doesn't need the clock patch.";
 		}
 	}
